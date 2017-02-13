@@ -327,7 +327,7 @@ SCM *
 scm_array_handle_writable_elements (scm_t_array_handle *h)
 {
   if (h->element_type != SCM_ARRAY_ELEMENT_TYPE_SCM)
-    scm_wrong_type_arg_msg (NULL, 0, h->array, "non-uniform array");
+    scm_wrong_type_arg_msg (NULL, 0, h->array, "array of Scheme values");
   return ((SCM*)h->elements) + h->base;
 }
 
