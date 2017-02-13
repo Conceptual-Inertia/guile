@@ -69,6 +69,7 @@
 #define SET(i, val) scm_array_handle_set (ra, scm_array_handle_pos_1 (ra, i), val)
 #include "libguile/quicksort.i.c"
 
+/* FIXME see scm_array_handle_ref for handling possible overflow */
 SCM_DEFINE (scm_restricted_vector_sort_x, "restricted-vector-sort!", 4, 0, 0, 
             (SCM vec, SCM less, SCM startpos, SCM endpos),
 	    "Sort the vector @var{vec}, using @var{less} for comparing\n"
@@ -79,7 +80,7 @@ SCM_DEFINE (scm_restricted_vector_sort_x, "restricted-vector-sort!", 4, 0, 0,
 #define FUNC_NAME s_scm_restricted_vector_sort_x
 {
   ssize_t spos = scm_to_ssize_t (startpos);
-  size_t epos = scm_to_ssize_t (endpos);
+  ssize_t epos = scm_to_ssize_t (endpos)-1;
 
   scm_t_array_handle handle;
   scm_t_array_dim const * dims;
@@ -89,26 +90,26 @@ SCM_DEFINE (scm_restricted_vector_sort_x, "restricted-vector-sort!", 4, 0, 0,
   if (scm_array_handle_rank(&handle) != 1)
     {
       scm_array_handle_release (&handle);
-      scm_error (scm_misc_error_key, FUNC_NAME, "rank must be 1", vec, SCM_EOL);
+      scm_misc_error (FUNC_NAME, "rank must be 1", scm_list_1 (vec));
     }
   if (spos < dims[0].lbnd)
     {
       scm_array_handle_release (&handle);
-      scm_error (scm_out_of_range_key, FUNC_NAME, "startpos out of range",
-                 vec, scm_list_1(startpos));
+      scm_error (scm_out_of_range_key, FUNC_NAME, "startpos ~s out of range of ~s",
+                 scm_list_2 (startpos, vec), scm_list_1 (startpos));
     }
-  if (epos > dims[0].ubnd+1)
+  if (epos > dims[0].ubnd)
     {
       scm_array_handle_release (&handle);
-      scm_error (scm_out_of_range_key, FUNC_NAME, "endpos out of range",
-                 vec, scm_list_1(endpos));
+      scm_error (scm_out_of_range_key, FUNC_NAME, "endpos ~s out of range of ~s",
+                 scm_list_2 (endpos, vec), scm_list_1 (endpos));
     }
 
   if (handle.element_type == SCM_ARRAY_ELEMENT_TYPE_SCM)
-      quicksort (scm_array_handle_writable_elements (&handle) + (spos-dims[0].lbnd) * dims[0].inc,
-                 epos-spos, dims[0].inc, less);
+    quicksort (scm_array_handle_writable_elements (&handle) - dims[0].lbnd * dims[0].inc,
+               spos, epos, dims[0].inc, less);
   else
-      quicksorta (&handle, epos-spos, less);
+    quicksorta (&handle, spos, epos, less);
 
   scm_array_handle_release (&handle);
   return SCM_UNSPECIFIED;
@@ -187,11 +188,11 @@ SCM_DEFINE (scm_sorted_p, "sorted?", 2, 0, 0,
         }
       else
         {
-          for (i = dims[0].lbnd+1, end = dims[0].ubnd+1; i < end; ++i)
+          for (i = 1, end = dims[0].ubnd-dims[0].lbnd+1; i < end; ++i)
             {
               if (scm_is_true (scm_call_2 (less,
-                                           scm_array_handle_ref (&handle, scm_array_handle_pos_1 (&handle, i)),
-                                           scm_array_handle_ref (&handle, scm_array_handle_pos_1 (&handle, i-1)))))
+                                           scm_array_handle_ref (&handle, i*dims[0].inc),
+                                           scm_array_handle_ref (&handle, (i-1)*dims[0].inc))))
                 {
                   result = SCM_BOOL_F;
                   break;
@@ -418,10 +419,23 @@ SCM_DEFINE (scm_sort_x, "sort!", 2, 0, 0,
     }
   else if (scm_is_array (items) && scm_c_array_rank (items) == 1)
     {
+      scm_t_array_handle handle;
+      scm_t_array_dim const * dims;
+      scm_array_get_handle (items, &handle);
+      dims = scm_array_handle_dims (&handle);
+
+      if (scm_array_handle_rank (&handle) != 1)
+        {
+          scm_array_handle_release (&handle);
+          scm_misc_error (FUNC_NAME, "rank must be 1", scm_list_1 (items));
+        }
+
       scm_restricted_vector_sort_x (items,
 				    less,
-				    scm_from_int (0),
-				    scm_array_length (items));
+				    scm_from_ssize_t (dims[0].lbnd),
+                                    scm_from_ssize_t (dims[0].ubnd+1));
+
+      scm_array_handle_release (&handle);
       return items;
     }
   else
