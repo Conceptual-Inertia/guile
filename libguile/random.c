@@ -498,66 +498,77 @@ SCM_DEFINE (scm_random_normal, "random:normal", 0, 1, 0,
 }
 #undef FUNC_NAME
 
+/* FIXME see scm_array_handle_ref for handling possible overflow */
 static void
 vector_scale_x (SCM v, double c)
 {
-  size_t n;
-  if (scm_is_vector (v))
-    {
-      n = SCM_SIMPLE_VECTOR_LENGTH (v);
-      while (n-- > 0)
-	SCM_REAL_VALUE (SCM_SIMPLE_VECTOR_REF (v, n)) *= c;
-    }
-  else
-    {
-      /* must be a f64vector. */
-      scm_t_array_handle handle;
-      size_t i, len;
-      ssize_t inc;
-      double *elts;
+  scm_t_array_handle handle;
+  scm_t_array_dim const * dims;
+  ssize_t i, inc, ubnd;
 
-      elts = scm_f64vector_writable_elements (v, &handle, &len, &inc);
-
-      for (i = 0; i < len; i++, elts += inc)
-	*elts *= c;
-      
-      scm_array_handle_release (&handle);
+  scm_array_get_handle (v, &handle);
+  dims = scm_array_handle_dims (&handle);
+  if (1 == scm_array_handle_rank (&handle))
+    {
+      ubnd = dims[0].ubnd;
+      inc = dims[0].inc;
+      if (handle.element_type == SCM_ARRAY_ELEMENT_TYPE_F64)
+        {
+          double *elts = (double *)(handle.writable_elements) + handle.base;
+          for (i = dims[0].lbnd; i <= ubnd; ++i, elts += inc)
+            *elts *= c;
+          return;
+        }
+      else if (handle.element_type == SCM_ARRAY_ELEMENT_TYPE_SCM)
+        {
+          SCM *elts = (SCM *)(handle.writable_elements) + handle.base;
+          for (i = dims[0].lbnd; i <= ubnd; ++i, elts += inc)
+            SCM_REAL_VALUE (*elts) *= c;
+          return;
+        }
     }
+  scm_array_handle_release (&handle);
+  scm_misc_error (NULL, "must be a rank-1 array of type #t or 'f64", scm_list_1 (v));
 }
 
+/* FIXME see scm_array_handle_ref for handling possible overflow */
 static double
 vector_sum_squares (SCM v)
 {
   double x, sum = 0.0;
-  size_t n;
-  if (scm_is_vector (v))
+  scm_t_array_handle handle;
+  scm_t_array_dim const * dims;
+  ssize_t i, inc, ubnd;
+
+  scm_array_get_handle (v, &handle);
+  dims = scm_array_handle_dims (&handle);
+  if (1 == scm_array_handle_rank (&handle))
     {
-      n = SCM_SIMPLE_VECTOR_LENGTH (v);
-      while (n-- > 0)
-	{
-	  x = SCM_REAL_VALUE (SCM_SIMPLE_VECTOR_REF (v, n));
-	  sum += x * x;
-	}
+      ubnd = dims[0].ubnd;
+      inc = dims[0].inc;
+      if (handle.element_type == SCM_ARRAY_ELEMENT_TYPE_F64)
+        {
+          const double *elts = (const double *)(handle.elements) + handle.base;
+          for (i = dims[0].lbnd; i <= ubnd; ++i, elts += inc)
+            {
+              x = *elts;
+              sum += x * x;
+            }
+          return sum;
+        }
+      else if (handle.element_type == SCM_ARRAY_ELEMENT_TYPE_SCM)
+        {
+          const SCM *elts = (const SCM *)(handle.elements) + handle.base;
+          for (i = dims[0].lbnd; i <= ubnd; ++i, elts += inc)
+            {
+              x = SCM_REAL_VALUE (*elts);
+              sum += x * x;
+            }
+          return sum;
+        }
     }
-  else
-    {
-      /* must be a f64vector. */
-      scm_t_array_handle handle;
-      size_t i, len;
-      ssize_t inc;
-      const double *elts;
-
-      elts = scm_f64vector_elements (v, &handle, &len, &inc);
-
-      for (i = 0; i < len; i++, elts += inc)
-	{
-	  x = *elts;
-	  sum += x * x;
-	}
-
-      scm_array_handle_release (&handle);
-    }
-  return sum;
+  scm_array_handle_release (&handle);
+  scm_misc_error (NULL, "must be an array of type #t or 'f64", scm_list_1 (v));
 }
 
 /* For the uniform distribution on the solid sphere, note that in
